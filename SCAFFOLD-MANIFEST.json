@@ -2,7 +2,7 @@
   "project": "iam-control-center",
   "status": "bootstrap scaffold; not production-ready",
   "manifest_updated_at_utc": "2026-11-09",
-  "tracked_file_count": 117,
+  "tracked_file_count": 118,
   "tracked_files": [
     ".env.example",
     ".github/e2e/README.md",
@@ -81,6 +81,7 @@
     "docs/database/neon-source-baseline-reconciliation.md",
     "docs/database/schema-manifest-contract.md",
     "docs/evidence/dependency-security-remediation.md",
+    "docs/evidence/github-360-audit-2026-11-09.md",
     "docs/evidence/policy.md",
     "docs/evidence/repository-audit-2026-11-07.md",
     "docs/evidence/validation-2026-10-31.md",
