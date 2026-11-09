@@ -146,7 +146,9 @@ jobs:
 
   auth0-e2e:
     name: auth0-e2e
-    if: github.event_name == 'pull_request' && vars.AUTH0_E2E_ENABLED == 'true' && needs.quality.outputs.preview_required == 'true'
+    # Auth0 currently allowlists the callback alias for fix/ci-auth0-build-config only.
+    # Do not schedule this job for other branches until their callbacks are verified.
+    if: github.event_name == 'pull_request' && vars.AUTH0_E2E_ENABLED == 'true' && needs.quality.outputs.preview_required == 'true' && github.event.pull_request.head.repo.full_name == 'alexoaraujo83/iam-control-center' && github.event.pull_request.head.ref == 'fix/ci-auth0-build-config'
     needs:
       - quality
       - preview-deployment
