@@ -57,6 +57,33 @@ On `development`, repeated that transaction with only synthetic `iam.tenant_id`,
 
 Remaining: valid signed tenant A/B tests on an authorized isolated Neon runtime branch, INSERT/UPDATE denial, audit/outbox propagation, idempotency and rollback evidence before any database merge.
 
+### Direct-login negative RLS validation and operational membership drift
+
+**Important qualification of the preceding SET ROLE tests:** the source Neon `main` and `development` branches currently allow `iam_app_runtime_login` to execute `SET ROLE iam_app_runtime`. Catalog read-only queries of `pg_auth_members` showed:
+
+| Member | Granted role | INHERIT | SET | ADMIN | Grantor |
+| --- | --- | --- | --- | --- | --- |
+| `iam_app_runtime_login` | `iam_app_runtime` | true | **true** | false | `iam_database_owner` |
+| `iam_migrator_login` | `iam_migrator` | false | true | false | `iam_database_owner` |
+
+The **approved portable bootstrap** in `database/bootstrap/0000_iam_roles.sql` instead requires `iam_app_runtime_login → iam_app_runtime` to have **INHERIT TRUE, SET FALSE, ADMIN FALSE**. The source state is a known, separately tracked configuration drift, **not** evidence that the portable contract has been applied to Neon. See [issue #100](https://github.com/alexoaraujo83/iam-control-center/issues/100).
+
+The negative runtime checks were then repeated *without* `SET ROLE`, directly as `iam_app_runtime_login` in Neon `main` and `development`, using one transaction per scenario:
+
+```sql
+SET TRANSACTION READ ONLY;
+SET LOCAL row_security = on;
+SELECT session_user AS login, current_user AS effective_role,
+       (SELECT rolbypassrls FROM pg_roles WHERE rolname = current_user) AS bypassrls,
+       app_private.current_tenant_id() AS resolved_tenant,
+       (SELECT count(*) FROM iam.tenants) AS visible_tenants,
+       (SELECT count(*) FROM iam.memberships) AS visible_memberships;
+```
+
+Both branches returned `session_user=current_user=iam_app_runtime_login`, `rolbypassrls=false`, `resolved_tenant=NULL`, `visible_tenants=0`, and `visible_memberships=0`. The same direct-login identity was tested again in both branches after transaction-local `set_config(..., true)` calls for synthetic tenant UUID, identity UUID, future expiry, synthetic nonce, and an explicitly invalid all-zero signature: again `resolved_tenant=NULL`, with zero visible rows.
+
+**Limitations:** these are deny-by-default checks only; they do not prove that two distinct tenants with *valid signed contexts* are isolated, or that the existing `SET TRUE` permission is safe. No role grants, role membership changes, production deployments, application data, or persistent DB writes were made. Authorization, test coverage, and remediation of this mismatch are separate requirements before production reconciliation.
+
 ## Remaining gates (not cleared by ledger read)
 
 1. Normalize/compare authenticated **full schema snapshot** and DDL manifest of operational Neon against the versioned baseline, including ownership, ACLs and provider-managed role differences. The schema-only dump alone does not include historical ledger rows.
