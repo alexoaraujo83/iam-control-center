@@ -167,6 +167,9 @@ jobs:
             > artifacts/main-baseline-section-hashes.tsv
           echo "Main baseline manifest section hashes (section, item_count, sha256):"
           cat artifacts/main-baseline-section-hashes.tsv
+          python3 database/tests/verify-source-structural-parity.py \
+            database/evidence/neon-source-structural-fingerprints.json \
+            artifacts/main-baseline-section-hashes.tsv
 
   restore-source-schema:
     name: postgres-18-candidate-source-schema-restore
@@ -208,3 +211,18 @@ jobs:
               psql -X --no-password "$DATABASE_URL" -Atc "SHOW server_version;"
               bash database/tests/restore-source-schema.sh
             '
+      - name: Verify candidate portable schema against pinned Neon source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          python3 database/tests/render-schema-manifest-section-hashes.py database/scripts/schema-manifest.sql \
+            | docker run --rm -i --network host \
+                --env DATABASE_URL="$DATABASE_URL" \
+                --env PGPASSWORD="$PGPASSWORD" \
+                postgres:18-bookworm \
+                psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 -At \
+            > artifacts/candidate-source-section-hashes.tsv
+          python3 database/tests/verify-source-structural-parity.py \
+            database/evidence/neon-source-structural-fingerprints.json \
+            artifacts/candidate-source-section-hashes.tsv

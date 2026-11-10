@@ -84,6 +84,14 @@ Both branches returned `session_user=current_user=iam_app_runtime_login`, `rolby
 
 **Limitations:** these are deny-by-default checks only; they do not prove that two distinct tenants with *valid signed contexts* are isolated, or that the existing `SET TRUE` permission is safe. No role grants, role membership changes, production deployments, application data, or persistent DB writes were made. Authorization, test coverage, and remediation of this mismatch are separate requirements before production reconciliation.
 
+### Authenticated Neon source fingerprints versus PostgreSQL 18 CI restores
+
+On 2026-11-10 UTC, a fresh read-only query using the versioned `database/scripts/schema-manifest.sql` directly against Neon `main` reproduced the fingerprints printed by the disposable `postgres-18-main-baseline-restore-manifest` CI job (run `42742732722`, job `129587496501`). **Exact hashes and counts match** for `aggregates` (0), `schemas` (4), `relations` (27), `policies` (41), `triggers` (12), `sequences` (3), `types` (7), `iam_routines` (9), `format`, and `server_version_num`.
+
+To make this reproducible, `database/evidence/neon-source-structural-fingerprints.json` pins those 10 directly observed source fingerprints. The script `database/tests/verify-source-structural-parity.py` fails on missing/changed sections or checksum/count mismatches. CI checks **both the main-baseline restore and candidate restore** against these pinned portable sections; this does not access live Neon during CI.
+
+The comparison **does not assert total equivalence**. Differences in `database_acl`, `default_acls`, `expanded_object_acls`, `roles`, `role_memberships`, `extensions`, `public_routines`, database identity and server build string remain unapproved/provider-specific gates. In particular Neon main has `expanded_object_acls=386` vs CI restore `383` (three export-reader schema USAGE grants), `role_memberships=26` vs restore `3` and `database_acl=9` vs restore `5`; runtime `SET TRUE` drift remains tracked in issue #100. Signed tenant A/B positive behavior, rollback, audit and outbox require further evidence.
+
 ## Remaining gates (not cleared by ledger read)
 
 1. Normalize/compare authenticated **full schema snapshot** and DDL manifest of operational Neon against the versioned baseline, including ownership, ACLs and provider-managed role differences. The schema-only dump alone does not include historical ledger rows.
