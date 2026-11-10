@@ -11,20 +11,17 @@ permissions:
   contents: read
 
 jobs:
-  docs-preview-gate:
-    name: docs-preview-gate
+  classify:
+    name: docs-preview-scope
     if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
-    timeout-minutes: 12
-    environment:
-      name: Preview
     permissions:
-      contents: read
       pull-requests: read
-      statuses: read
-      deployments: write
+    outputs:
+      docs_only: ${{ steps.paths.outputs.docs_only }}
     steps:
-      - name: Reject non-documentation changes
+      - name: Classify all changed paths
+        id: paths
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -34,12 +31,30 @@ jobs:
           set -euo pipefail
           changed="$(gh api --paginate "repos/${REPOSITORY}/pulls/${PR_NUMBER}/files?per_page=100" --jq '.[].filename')"
           test -n "${changed}" || { echo "::error::Empty PR file set"; exit 1; }
+          docs_only=true
           while IFS= read -r file; do
             case "${file}" in
               SCAFFOLD-MANIFEST.json|docs/*|.github/workflows/docs-preview-gate.yml) ;;
-              *) echo "::error::App or security code changed; docs gate cannot replace app Preview E2E"; exit 1 ;;
+              *) docs_only=false ;;
             esac
           done <<< "${changed}"
+          printf 'docs_only=%s\n' "${docs_only}" >> "${GITHUB_OUTPUT}"
+          echo "Documentation-only Preview eligible: ${docs_only}"
+  docs-preview-gate:
+    name: docs-preview-gate
+    needs: classify
+    # Never register a Preview environment deployment for a mixed/code PR.
+    # Those PRs follow their own required Preview and test gates.
+    if: needs.classify.outputs.docs_only == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    environment:
+      name: Preview
+    permissions:
+      contents: read
+      statuses: read
+      deployments: write
+    steps:
       - name: Verify successful exact-commit Vercel deployment
         shell: bash
         env:
