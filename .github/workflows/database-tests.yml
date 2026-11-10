@@ -247,19 +247,24 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           set -euo pipefail
-          changed="$(gh api --paginate "repos/${REPOSITORY}/pulls/${PR_NUMBER}/files?per_page=100" --jq '.[] | [.filename, (.previous_filename // "")] | @tsv')"
+          changed="$(gh api --paginate "repos/${REPOSITORY}/pulls/${PR_NUMBER}/files?per_page=100" --jq '.[] | {filename, previous_filename}')"
           test -n "${changed}" || { echo "::error::Empty PR file set"; exit 1; }
           eligible=true
           database_touched=false
-          while IFS=
-              database/*|iam_database_schema.sql|role-security-harness/*|scripts/test-postgres18-role-security-harness.sh)
-                database_touched=true
-                ;;
-              docs/*|.github/workflows/database-tests.yml)
-                ;;
-              *)
-                eligible=false
-                ;;
+          while IFS= read -r entry; do
+            file="$(jq -r '.filename' <<< "${entry}")"
+            previous="$(jq -r '.previous_filename // empty' <<< "${entry}")"
+            for candidate in "${file}" "${previous}"; do
+              [[ -n "${candidate}" ]] || continue
+              case "${candidate}" in
+                database/*|iam_database_schema.sql|role-security-harness/*|scripts/test-postgres18-role-security-harness.sh)
+                  database_touched=true
+                  ;;
+                docs/*|.github/workflows/database-tests.yml)
+                  ;;
+                *)
+                  eligible=false
+                  ;;
               esac
             done
           done <<< "${changed}"
