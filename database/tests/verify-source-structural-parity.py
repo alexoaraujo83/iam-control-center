@@ -13,6 +13,12 @@ from pathlib import Path
 REQUIRED = frozenset(("aggregates", "format", "iam_routines", "policies",
  "relations", "schemas", "sequences", "triggers", "types"))
 ENGINE_METADATA = frozenset(("server_version_num",))  # Checked by PG18 runtime gate, not structural parity.
+# Emitted by the canonical renderer, but intentionally not compared with the
+# provider source: these are environment/provider-managed or patch metadata.
+EXCLUDED = frozenset(("database", "server_version", "routines",
+ "public_routines", "extensions", "expanded_object_acls", "default_acls",
+ "database_acl", "roles", "role_memberships"))
+RESTORE_SECTIONS = REQUIRED | ENGINE_METADATA | EXCLUDED
 SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 
 def validate(snapshot_path: Path, tsv_path: Path) -> None:
@@ -40,8 +46,8 @@ def validate(snapshot_path: Path, tsv_path: Path) -> None:
         else:
             raise ValueError(f"invalid count at line {line_no}")
         actual[name] = (count, digest)
-    if set(actual) != REQUIRED | ENGINE_METADATA:
-        raise ValueError("unexpected/missing restore sections: " + repr(sorted(set(actual) ^ (REQUIRED | ENGINE_METADATA))))
+    if set(actual) != RESTORE_SECTIONS:
+        raise ValueError("unexpected/missing restore sections: " + repr(sorted(set(actual) ^ RESTORE_SECTIONS)))
     failures = []
     for name in sorted(REQUIRED):
         row = expected[name]
