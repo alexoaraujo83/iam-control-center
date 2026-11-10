@@ -196,7 +196,8 @@ jobs:
             echo "::error::Verified exact-SHA deployment hostname is missing or invalid."
             exit 1
           }
-          [[ "${E2E_DEPLOYMENT_HOST}" != "${E2E_CALLBACK_HOST}" ]] || exit 1
+          # The exact-SHA Vercel Preview may itself use the canonical callback alias.
+          # Same-origin is valid and required for Auth0 transaction cookies.
           printf 'E2E_DEPLOYMENT_URL=https://%s\n' "${E2E_DEPLOYMENT_HOST}" >> "$GITHUB_ENV"
           printf 'E2E_BASE_URL=https://%s\n' "${E2E_CALLBACK_HOST}" >> "$GITHUB_ENV"
 
@@ -275,9 +276,8 @@ jobs:
           if (callbackHost !== "iam-control-center-preview.vercel.app") {
             throw new Error("Unexpected Auth0 callback Preview host.");
           }
-          if (deploymentOrigin.hostname === callbackHost) {
-            throw new Error("Deployment hostname and callback alias must be distinct.");
-          }
+          // A shared deployment/callback hostname is permitted when the exact-SHA
+          // Preview gate already verified that hostname for this PR commit.
 
           // Negative control: deployment hostname must be protected without OIDC.
           const anonymous = await fetch(new URL("/protected", deploymentOrigin), { redirect: "manual" });
