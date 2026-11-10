@@ -4,7 +4,7 @@
 **Repositório:** `alexoaraujo83/iam-control-center`  
 **Branch desta documentação:** `chore/reconcile-neon-source-schema-baseline`  
 **Base GitHub:** `main` em `ff71607948c9d02d90fc0b1b26931c573ab660f8`  
-**Arquivo de bootstrap em main:** `database/migrations/0001_initial_iam_schema.sql`  
+**Arquivo de bootstrap em main:** `database/bootstrap/0001_initial_iam_schema.sql`  
 **Blob SHA observado:** `18ff99eade3a216df2396b564fe11de6482dc8d8`
 
 ## Decisão de fonte oficial
@@ -66,9 +66,9 @@ View: `iam.v_effective_membership_permissions`.
 
 As 41 policies foram inventariadas com comando, roles, expressão `USING` e `WITH CHECK`. A matriz de privilégios foi consultada com funções `has_schema_privilege`, `has_table_privilege` e `has_function_privilege` para as roles operacionais e de migração.
 
-## Divergência da migration inicial versionada
+## Divergência da bootstrap inicial versionado
 
-O arquivo `database/migrations/0001_initial_iam_schema.sql` em `main` declara no cabeçalho:
+O arquivo `database/bootstrap/0001_initial_iam_schema.sql` em `main` declara no cabeçalho:
 
 - `REVIEW PROPOSAL`;
 - banco limpo;

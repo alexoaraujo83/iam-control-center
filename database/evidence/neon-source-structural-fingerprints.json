@@ -1,0 +1,65 @@
+{
+  "format": "iam-neon-source-structural-fingerprint/v1",
+  "source": {
+    "project_id": "twilight-fire-88497009",
+    "branch_id": "br-little-fire-b6adup9f",
+    "database": "iam_database",
+    "captured_at_utc": "2026-11-10",
+    "manifest_git_blob_sha": "1e9fa614835aacb99e5b64cbffa3476312e1c333",
+    "comparison_ci_run": 42742732722
+  },
+  "section_digests": {
+    "aggregates": {
+      "count": 0,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "format": {
+      "count": null,
+      "sha256": "4b2d547f05d94b95b034375af8dbd9ac8f5757f0dd83cda39b042b5d87c4540e"
+    },
+    "iam_routines": {
+      "count": 9,
+      "sha256": "53f2a80a05ceff7bc80a1252563c14eea7608636a3f3cc31c42ba2ef6214ff86"
+    },
+    "policies": {
+      "count": 41,
+      "sha256": "94d977ce68920d90177a631ac40d78f37fb85b13cf6f7fed5ed3bf60eb32bc7c"
+    },
+    "relations": {
+      "count": 27,
+      "sha256": "d89e3fda6a66a71c2d2120e5ce5e7a2ffd68e527aeb9e49dfe4399e47d812932"
+    },
+    "schemas": {
+      "count": 4,
+      "sha256": "2fefaead8131d9d9f244cc5477bfe5d5e58e4310a7567b23361fc8e527b8417f"
+    },
+    "sequences": {
+      "count": 3,
+      "sha256": "9fd8cb9d2aca3c6e84f7fb35beaa9d6436fa4e59927a26b6938054eabe84244c"
+    },
+    "server_version_num": {
+      "count": null,
+      "sha256": "9d7f3c3ba86402e70017499dbe3240cd22777643a99ace91302d009361109ebc"
+    },
+    "triggers": {
+      "count": 12,
+      "sha256": "9f5374ad26d8ab06609687f49c81085f42b8121e2a42fb65a5baa6c975561b0c"
+    },
+    "types": {
+      "count": 7,
+      "sha256": "1cdf15b1e8e60866d7771c75ef3b355293852b85444bd6293c9d2239e56ae3f1"
+    }
+  },
+  "excluded_by_design": [
+    "database",
+    "server_version",
+    "database_acl",
+    "default_acls",
+    "expanded_object_acls",
+    "extensions",
+    "roles",
+    "role_memberships",
+    "routines",
+    "public_routines"
+  ]
+}

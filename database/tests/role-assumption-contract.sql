@@ -77,6 +77,52 @@ BEGIN
 END
 $assert_role_attributes$;
 
+DO $assert_bootstrap_admin_is_locked$
+DECLARE
+  admin_edges integer;
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+      FROM pg_roles
+     WHERE rolname = 'iam_bootstrap_admin'
+       AND NOT rolcanlogin
+       AND NOT rolcreaterole
+       AND NOT rolsuper
+       AND NOT rolcreatedb
+       AND NOT rolbypassrls
+  ) THEN
+    RAISE EXCEPTION 'bootstrap administrator must be disabled after one-time provisioning';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM pg_authid
+     WHERE rolname = 'iam_bootstrap_admin'
+       AND rolpassword IS NOT NULL
+  ) THEN
+    RAISE EXCEPTION 'bootstrap administrator password must be cleared after provisioning';
+  END IF;
+
+  -- PostgreSQL 18 creates an implicit ADMIN membership for the role creator.
+  -- The grantor is the bootstrap superuser, so the creator cannot revoke it.
+  -- The membership is acceptable only because the principal is NOLOGIN,
+  -- NOCREATEROLE, and has neither INHERIT nor SET on these memberships.
+  SELECT count(*)
+    INTO admin_edges
+    FROM pg_auth_members m
+    JOIN pg_roles member_role ON member_role.oid = m.member
+    JOIN pg_roles granted_role ON granted_role.oid = m.roleid
+   WHERE member_role.rolname = 'iam_bootstrap_admin'
+     AND granted_role.rolname IN ('iam_owner','iam_migrator','iam_app_runtime')
+     AND m.admin_option
+     AND NOT m.inherit_option
+     AND NOT m.set_option;
+
+  IF admin_edges <> 3 THEN
+    RAISE EXCEPTION 'expected exactly three inert PostgreSQL 18 creator memberships; found %', admin_edges;
+  END IF;
+END
+$assert_bootstrap_admin_is_locked$;
+
 DO $assert_no_unexpected_iam_edges$
 DECLARE edge_count integer;
 BEGIN

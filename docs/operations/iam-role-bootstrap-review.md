@@ -70,3 +70,35 @@ Esses testes validam o SQL em PostgreSQL 18 descartável. Não provam privilégi
 7. Preview e Production continuam bloqueados e não foram alterados.
 
 **Auth0 permanece como IdP; Neon Auth não faz parte desta arquitetura.**
+
+
+## Atualização de catálogo e preflight — 2026-11-08
+
+A inspeção read-only mais recente do projeto Neon canônico (`twilight-fire-88497009`), branch `br-little-fire-b6adup9f`, database `iam_database`, identificou o proprietário efetivo como **`iam_database_owner`** (não `Iam-control-center_owner`). O grantor das memberships administrativas provider-managed é `cloud_admin`.
+
+A topologia observada para o caminho de migração é:
+
+- `iam_migrator_login → iam_migrator`: `INHERIT FALSE / SET TRUE / ADMIN FALSE`, grantor `iam_database_owner`.
+- `iam_migrator → iam_owner`: `INHERIT FALSE / SET TRUE / ADMIN FALSE`, grantor `iam_database_owner`.
+- `iam_database_owner → iam_migrator`: `INHERIT FALSE / SET FALSE / ADMIN TRUE`, grantor superuser `cloud_admin`.
+- `iam_database_owner → iam_owner`: membership provider-managed `ADMIN TRUE / SET FALSE / INHERIT FALSE`, grantor `cloud_admin`, e uma aresta adicional `ADMIN FALSE / SET TRUE / INHERIT FALSE`, grantor `iam_database_owner`.
+
+O owner também possui arestas provider-managed para as demais roles IAM. Essas arestas não são memberships concedidas a logins de aplicação e não devem ser removidas. O preflight da migration agora exige que o único grantee administrativo adicional seja o proprietário real do database, com opções exatas e grantor superuser; para `iam_owner`, aceita também somente a aresta SET-only emitida pelo próprio database owner. Qualquer outro grantee continua sendo rejeitado.
+
+No PostgreSQL 18 descartável, o runner reproduz essas arestas do owner e valida que a migration aceita a topologia autorizada e rejeita memberships extras. Evidência do SHA `3debdfe2408374bdeeeed13657282b6f9fdd7200`: CI run `42443903792` SUCCESS e PostgreSQL 18 run `42443903806` SUCCESS. O novo teste adicional de simulação do owner está sendo executado em um SHA posterior; ainda não é PASS.
+
+O bootstrap SQL não pode desabilitar a própria sessão administrativa. O runner bloqueia a conta temporária por uma conexão administrativa separada. Em qualquer bootstrap real, o operador deve executar e verificar esse bloqueio por um principal autorizado independente após o commit; a conta temporária nunca pode permanecer como credencial da aplicação.
+
+**Limites:** toda a evidência acima é de catálogo read-only no Neon e de testes PostgreSQL descartáveis no CI. Nenhuma migration, DDL, GRANT ou seed foi executada no Neon persistente ou em Production. A lineage da migration incremental ainda depende da reconciliação com a baseline da PR #86.
+
+
+## Divergência observada no runtime LOGIN — 2026-11-08
+
+Consulta read-only ao catálogo da fonte Neon canônica encontrou:
+- iam_app_runtime_login: LOGIN=true, INHERIT=false, SUPERUSER=false, BYPASSRLS=false;
+- membership iam_app_runtime_login → iam_app_runtime: INHERIT=true, SET=true, ADMIN=false, grantor iam_database_owner;
+- pg_has_role(..., 'USAGE')=true e pg_has_role(..., 'SET')=true.
+
+Isso diverge do bootstrap versionado, que declara iam_app_runtime_login como LOGIN INHERIT e concede iam_app_runtime com INHERIT TRUE / SET FALSE / ADMIN FALSE. O login runtime consegue executar SET ROLE iam_app_runtime; não há evidência de que possa assumir iam_owner ou iam_migrator, portanto esta aresta isolada não equivale a escalada para owner, mas viola a regra documentada de não permitir SET ROLE no runtime.
+
+Não alterar a origem automaticamente. Manter como DRIFT / DECISION REQUIRED: decidir se o contrato canônico deve ser o bootstrap versionado (NO SET para runtime) ou se a aresta SET-only atual é intencional. Antes de qualquer correção, verificar dependências de aplicação e executar um teste de regressão em branch descartável. A consulta não prova nem autoriza DDL/GRANT na Neon persistente.

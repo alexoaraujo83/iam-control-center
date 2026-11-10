@@ -47,7 +47,7 @@ Executar em uma branch Neon descartável ou PostgreSQL descartável com dois cli
 - O contrato dinâmico adicionado é executado no restore PostgreSQL descartável. Ele não executa DDL nem dados na fonte Neon.
 - O teste ainda não comprova comportamento em branch Neon isolada com as memberships/provider grants reais.
 - A fixture iam_database_context_key_baseline.sql é reduzida e serve apenas à migration incremental. Não é a baseline canônica.
-- A migration incremental 0001_context_key_hardening.sql e a migration proposta 0001_initial_iam_schema.sql compartilham o identificador 0001 e pressupõem estados diferentes. A sequência canônica deve ser decidida antes de integração.
+- O bootstrap `database/bootstrap/0001_initial_iam_schema.sql` é exclusivo de database vazia e está fora de `database/migrations/`. O artefato histórico `0001_context_key_hardening` permanece em `database/archive/source-applied-migrations/` porque já consta no ledger Neon. A baseline #86 é estado operacional já pós-hardening; não reaplicar a migration histórica sobre ela. Propostas futuras permanecem em `database/proposals/` até revisão e versionamento próprios.
 - Não ler nem versionar secrets, chaves HMAC, hashes, JWTs, payloads ou linhas reais de negócio.
 - Não aplicar migration, DDL, GRANT, seed ou alteração de dados em Neon persistente/Production como parte destes testes.
 

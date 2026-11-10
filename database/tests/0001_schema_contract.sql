@@ -1,201 +1,134 @@
--- CI-only tests. Run as PostgreSQL superuser on disposable PostgreSQL 18.
+-- CI-only contract for the source-derived incremental context-key migration fixture.
+-- Run as the disposable PostgreSQL administrator after migration 0001 commits.
 \set ON_ERROR_STOP on
 
-DO $assert_schema$
-DECLARE expected_count integer; actual_count integer;
+SELECT set_config('ci.migration_checksum', :'migration_checksum', false);
+SELECT set_config('ci.source_sha', :'source_sha', false);
+
+DO $assert_migration$
+DECLARE
+  v_index record;
+  v_function record;
+  v_ledger record;
+  v_expected_checksum text := current_setting('ci.migration_checksum');
+  v_expected_source text := current_setting('ci.source_sha');
 BEGIN
-  SELECT count(*) INTO expected_count FROM (VALUES
-    ('iam','tenants'),('iam','identities'),('iam','memberships'),('iam','roles'),
-    ('iam','permissions'),('iam','membership_roles'),('iam','role_permissions'),
-    ('iam','invitations'),('iam','schema_migrations'),('audit','events')
-  ) AS expected(schema_name,table_name);
-  SELECT count(*) INTO actual_count
-  FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
-  WHERE (n.nspname,c.relname) IN (
-    ('iam','tenants'),('iam','identities'),('iam','memberships'),('iam','roles'),
-    ('iam','permissions'),('iam','membership_roles'),('iam','role_permissions'),
-    ('iam','invitations'),('iam','schema_migrations'),('audit','events')
-  ) AND c.relkind='r';
-  IF actual_count <> expected_count THEN
-    RAISE EXCEPTION 'expected % tables, found %',expected_count,actual_count;
+  SELECT i.indisunique, i.indisvalid, pg_get_expr(i.indpred, i.indrelid) AS predicate
+    INTO v_index
+    FROM pg_index i
+   WHERE i.indexrelid = to_regclass('app_private.context_keys_one_active_idx');
+  IF NOT FOUND OR NOT v_index.indisunique OR NOT v_index.indisvalid
+     OR v_index.predicate <> '(active IS TRUE)' THEN
+    RAISE EXCEPTION 'context_keys_one_active_idx is missing or invalid';
   END IF;
 
-  IF EXISTS (
-    SELECT 1 FROM pg_namespace n
-    WHERE n.nspname IN ('iam','audit','app_private')
-      AND n.nspowner <> (SELECT oid FROM pg_roles WHERE rolname='iam_owner')
-  ) THEN
-    RAISE EXCEPTION 'all IAM schemas must be owned by iam_owner';
-  END IF;
-  IF EXISTS (
-    SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
-    WHERE n.nspname IN ('iam','audit') AND c.relkind='r'
-      AND c.relowner <> (SELECT oid FROM pg_roles WHERE rolname='iam_owner')
-  ) THEN
-    RAISE EXCEPTION 'all IAM tables must be owned by iam_owner';
-  END IF;
-  IF EXISTS (
-    SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
-    WHERE n.nspname IN ('iam','audit') AND c.relkind='r'
-      AND NOT (n.nspname='iam' AND c.relname='schema_migrations')
-      AND (NOT c.relrowsecurity OR NOT c.relforcerowsecurity)
-  ) THEN RAISE EXCEPTION 'RLS must be enabled and forced on every business/audit table'; END IF;
-  IF (SELECT relrowsecurity FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
-      WHERE n.nspname='iam' AND c.relname='schema_migrations') THEN
-    RAISE EXCEPTION 'migration ledger must remain outside RLS';
-  END IF;
-  IF EXISTS (
-    SELECT 1 FROM pg_policy p JOIN pg_class c ON c.oid=p.polrelid
-    JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN ('iam','audit')
-  ) THEN RAISE EXCEPTION 'baseline must not create RLS policies'; END IF;
-  IF (SELECT is_nullable FROM information_schema.columns
-      WHERE table_schema='iam' AND table_name='tenants' AND column_name='slug') <> 'YES'
-  THEN RAISE EXCEPTION 'tenant slug must be nullable'; END IF;
-  IF EXISTS (
-    SELECT 1 FROM pg_roles
-     WHERE rolname IN ('iam_owner','iam_migrator','iam_app_runtime')
-       AND (rolcanlogin OR rolsuper OR rolcreatedb OR rolcreaterole
-            OR rolreplication OR rolbypassrls)
-  ) THEN
-    RAISE EXCEPTION 'IAM group roles must be NOLOGIN and have no administrative attributes';
-  END IF;
-  IF EXISTS (
-    SELECT 1 FROM pg_roles
-     WHERE (rolname='iam_app_runtime' AND NOT rolinherit)
-        OR (rolname IN ('iam_owner','iam_migrator') AND rolinherit)
-  ) THEN
-    RAISE EXCEPTION 'IAM group role INHERIT attributes do not match the contract';
-  END IF;
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_auth_members m
-    JOIN pg_roles member_role ON member_role.oid=m.member
-    JOIN pg_roles granted_role ON granted_role.oid=m.roleid
-    WHERE member_role.rolname='iam_migrator_login'
-      AND granted_role.rolname='iam_migrator'
-      AND NOT m.inherit_option AND m.set_option AND NOT m.admin_option
-  ) OR NOT EXISTS (
-    SELECT 1 FROM pg_auth_members m
-    JOIN pg_roles member_role ON member_role.oid=m.member
-    JOIN pg_roles granted_role ON granted_role.oid=m.roleid
-    WHERE member_role.rolname='iam_migrator'
-      AND granted_role.rolname='iam_owner'
-      AND NOT m.inherit_option AND m.set_option AND NOT m.admin_option
-  ) OR EXISTS (
-    SELECT 1 FROM pg_auth_members m
-    JOIN pg_roles member_role ON member_role.oid=m.member
-    JOIN pg_roles granted_role ON granted_role.oid=m.roleid
-    WHERE member_role.rolname='iam_migrator_login'
-      AND granted_role.rolname='iam_owner'
-  ) THEN
-    RAISE EXCEPTION 'migration role chain must be exact, two-step, SET-only and non-admin';
+  SELECT p.prosecdef, p.proconfig, pg_get_userbyid(p.proowner) AS owner
+    INTO v_function
+    FROM pg_proc p
+   WHERE p.oid = to_regprocedure('app_private.current_tenant_id()');
+  IF NOT FOUND OR NOT v_function.prosecdef
+     OR v_function.owner <> 'iam_owner'
+     OR NOT (v_function.proconfig @> ARRAY['search_path=pg_catalog, app_private, iam']::text[])
+     OR v_function.proconfig @> ARRAY['search_path=pg_catalog, app_private, iam, public']::text[] THEN
+    RAISE EXCEPTION 'current_tenant_id SECURITY DEFINER ownership/search_path contract failed: %', v_function;
   END IF;
 
-  IF EXISTS (
-    WITH RECURSIVE role_memberships(root_role, granted_role, path) AS (
-      SELECT root.oid, m.roleid, ARRAY[root.oid,m.roleid]::oid[]
-        FROM pg_roles root
-        JOIN pg_auth_members m ON m.member=root.oid
-       WHERE root.rolname IN ('iam_owner','iam_migrator','iam_app_runtime')
-      UNION ALL
-      SELECT rm.root_role, m.roleid, rm.path || m.roleid
-        FROM role_memberships rm
-        JOIN pg_auth_members m ON m.member=rm.granted_role
-       WHERE NOT m.roleid=ANY(rm.path)
-    )
-    SELECT 1
-      FROM role_memberships rm
-      JOIN pg_roles granted ON granted.oid=rm.granted_role
-     WHERE granted.rolname='neon_superuser'
-        OR granted.rolsuper OR granted.rolcreatedb OR granted.rolcreaterole
-        OR granted.rolreplication OR granted.rolbypassrls
-  ) THEN
-    RAISE EXCEPTION 'IAM group roles must not inherit or assume privileged roles';
+  SELECT migration_id, checksum_sha256, source_sha, execution_role
+    INTO v_ledger
+    FROM iam.schema_migrations
+   WHERE migration_id = '0001_context_key_hardening';
+  IF NOT FOUND
+     OR v_ledger.checksum_sha256 <> v_expected_checksum
+     OR v_ledger.source_sha <> v_expected_source
+     OR v_ledger.execution_role <> 'iam_migrator_login' THEN
+    RAISE EXCEPTION 'migration ledger evidence mismatch: %', v_ledger;
   END IF;
-  IF has_table_privilege('iam_app_runtime','iam.schema_migrations','SELECT')
-     OR has_table_privilege('iam_app_runtime','iam.schema_migrations','INSERT') THEN
-    RAISE EXCEPTION 'runtime must not access migration ledger';
-  END IF;
-END $assert_schema$;
 
--- Composite FK must reject a membership from tenant A assigned a role from tenant B.
+  IF (SELECT count(*) FROM app_private.context_keys WHERE active IS TRUE) <> 0 THEN
+    RAISE EXCEPTION 'fixture must start with zero active context keys';
+  END IF;
+  IF app_private.current_tenant_id() IS NOT NULL THEN
+    RAISE EXCEPTION 'current_tenant_id must fail closed when no signed context exists';
+  END IF;
+END
+$assert_migration$;
+
+-- Exercise the partial unique index. The second active key must fail, while
+-- inactive historical keys remain permitted. All synthetic rows are rolled back.
 BEGIN;
-INSERT INTO iam.tenants(id,slug,display_name) VALUES
- ('00000000-0000-4000-8000-000000000001','tenant-a','Tenant A'),
- ('00000000-0000-4000-8000-000000000002','tenant-b','Tenant B'),
- ('00000000-0000-4000-8000-000000000003',NULL,'Tenant without slug');
-INSERT INTO iam.identities(id,issuer,subject) VALUES
- ('00000000-0000-4000-8000-000000000010','https://issuer.example/','subject-a'),
- ('00000000-0000-4000-8000-000000000011','https://issuer.example/','subject-b');
-INSERT INTO iam.memberships(id,tenant_id,identity_id,status)
-VALUES ('00000000-0000-4000-8000-000000000020',
- '00000000-0000-4000-8000-000000000001',
- '00000000-0000-4000-8000-000000000010','active');
-INSERT INTO iam.roles(id,tenant_id,key,display_name)
-VALUES ('00000000-0000-4000-8000-000000000030',
- '00000000-0000-4000-8000-000000000002','admin','Admin');
-DO $assert_composite_fk$
+INSERT INTO app_private.context_keys(key_id, secret, active)
+VALUES ('ci-active-1', decode(repeat('11', 32), 'hex'), true);
+INSERT INTO app_private.context_keys(key_id, secret, active)
+VALUES ('ci-inactive-1', decode(repeat('22', 32), 'hex'), false);
+DO $assert_one_active_key$
 BEGIN
   BEGIN
-    INSERT INTO iam.membership_roles(tenant_id,membership_id,role_id)
-    VALUES ('00000000-0000-4000-8000-000000000001',
-      '00000000-0000-4000-8000-000000000020',
-      '00000000-0000-4000-8000-000000000030');
-    RAISE EXCEPTION 'cross-tenant membership-role assignment unexpectedly succeeded';
-  EXCEPTION WHEN foreign_key_violation THEN NULL;
+    INSERT INTO app_private.context_keys(key_id, secret, active)
+    VALUES ('ci-active-2', decode(repeat('33', 32), 'hex'), true);
+    RAISE EXCEPTION 'second active context key unexpectedly succeeded';
+  EXCEPTION WHEN unique_violation THEN
+    NULL;
   END;
-END $assert_composite_fk$;
-
--- Audit actor identity must match the referenced membership, not merely its tenant.
-DO $assert_audit_actor_identity$
-BEGIN
-  BEGIN
-    INSERT INTO audit.events(tenant_id,actor_identity_id,actor_membership_id,action,outcome)
-    VALUES ('00000000-0000-4000-8000-000000000001',
-      '00000000-0000-4000-8000-000000000011',
-      '00000000-0000-4000-8000-000000000020',
-      'test.audit.identity-mismatch','failure');
-    RAISE EXCEPTION 'audit event accepted an identity different from its membership';
-  EXCEPTION WHEN foreign_key_violation THEN NULL;
-  END;
-
-  BEGIN
-    INSERT INTO audit.events(tenant_id,actor_identity_id,actor_membership_id,action,outcome)
-    VALUES ('00000000-0000-4000-8000-000000000001',
-      NULL,
-      '00000000-0000-4000-8000-000000000020',
-      'test.audit.missing-identity','failure');
-    RAISE EXCEPTION 'audit event accepted a membership without its actor identity';
-  EXCEPTION WHEN check_violation THEN NULL;
-  END;
-
-  INSERT INTO audit.events(tenant_id,actor_identity_id,actor_membership_id,action,outcome)
-  VALUES ('00000000-0000-4000-8000-000000000001',
-    '00000000-0000-4000-8000-000000000010',
-    '00000000-0000-4000-8000-000000000020',
-    'test.audit.valid-actor','success');
-END $assert_audit_actor_identity$;
+  IF (SELECT count(*) FROM app_private.context_keys WHERE active IS TRUE) <> 1 THEN
+    RAISE EXCEPTION 'partial unique index did not preserve exactly one active key';
+  END IF;
+  IF (SELECT count(*) FROM app_private.context_keys WHERE active IS FALSE) <> 1 THEN
+    RAISE EXCEPTION 'inactive historical context key was unexpectedly rejected';
+  END IF;
+END
+$assert_one_active_key$;
 ROLLBACK;
 
--- Test-only grants isolate RLS behavior from ordinary SQL privilege errors.
-GRANT USAGE ON SCHEMA iam,audit TO iam_app_runtime;
-GRANT SELECT,INSERT,UPDATE,DELETE ON iam.tenants TO iam_app_runtime;
-BEGIN;
-INSERT INTO iam.tenants(id,slug,display_name)
-VALUES ('00000000-0000-4000-8000-000000000101','owner-fixture','Owner fixture');
-SET ROLE iam_app_runtime;
-DO $assert_default_deny$
-DECLARE visible_count integer;
+DO $assert_no_fixture_rows$
 BEGIN
-  SELECT count(*) INTO visible_count FROM iam.tenants;
-  IF visible_count <> 0 THEN
-    RAISE EXCEPTION 'runtime saw % rows without an approved policy',visible_count;
+  IF EXISTS (SELECT 1 FROM app_private.context_keys) THEN
+    RAISE EXCEPTION 'synthetic context key rows escaped test rollback';
   END IF;
-  BEGIN
-    INSERT INTO iam.tenants(id,slug,display_name)
-    VALUES ('00000000-0000-4000-8000-000000000102','runtime-write','Must be denied');
-    RAISE EXCEPTION 'runtime INSERT unexpectedly succeeded without a policy';
-  EXCEPTION WHEN insufficient_privilege THEN NULL;
-  END;
-END $assert_default_deny$;
-RESET ROLE;
-ROLLBACK;
+END
+$assert_no_fixture_rows$;
+
+SELECT 'PASS context-key migration contract: partial unique index, SECURITY DEFINER search_path, authenticated ledger, fail-closed context, uniqueness and rollback' AS result;
+
+
+DO $assert_migration_principal_privileges$
+DECLARE
+  v_lock record;
+  v_record record;
+BEGIN
+  IF NOT has_schema_privilege('iam_migrator', 'iam', 'USAGE')
+     OR NOT has_table_privilege('iam_migrator', 'iam.schema_migrations', 'SELECT')
+     OR has_table_privilege('iam_migrator', 'iam.schema_migrations', 'INSERT')
+     OR has_table_privilege('iam_migrator', 'iam.schema_migrations', 'UPDATE')
+     OR has_table_privilege('iam_migrator', 'iam.schema_migrations', 'DELETE')
+     OR NOT has_function_privilege('iam_migrator', 'iam.acquire_migration_lock()', 'EXECUTE')
+     OR NOT has_function_privilege('iam_migrator', 'iam.record_migration(text,text,text)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'migration principal effective schema/ledger/function privileges diverge from source contract';
+  END IF;
+
+  SELECT p.prosecdef, pg_get_userbyid(p.proowner) AS owner, p.proconfig,
+         coalesce(bool_or(grantee = 0), false) AS public_execute
+    INTO v_lock
+    FROM pg_proc p
+    LEFT JOIN aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a ON true
+   WHERE p.oid = to_regprocedure('iam.acquire_migration_lock()')
+   GROUP BY p.prosecdef, p.proowner, p.proconfig;
+  IF NOT FOUND OR NOT v_lock.prosecdef OR v_lock.owner <> 'iam_owner'
+     OR v_lock.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']::text[]
+     OR v_lock.public_execute THEN
+    RAISE EXCEPTION 'acquire_migration_lock SECURITY DEFINER/owner/search_path/ACL contract failed';
+  END IF;
+
+  SELECT p.prosecdef, pg_get_userbyid(p.proowner) AS owner, p.proconfig,
+         coalesce(bool_or(grantee = 0), false) AS public_execute
+    INTO v_record
+    FROM pg_proc p
+    LEFT JOIN aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a ON true
+   WHERE p.oid = to_regprocedure('iam.record_migration(text,text,text)')
+   GROUP BY p.prosecdef, p.proowner, p.proconfig;
+  IF NOT FOUND OR NOT v_record.prosecdef OR v_record.owner <> 'iam_owner'
+     OR v_record.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog, iam']::text[]
+     OR v_record.public_execute THEN
+    RAISE EXCEPTION 'record_migration SECURITY DEFINER/owner/search_path/ACL contract failed';
+  END IF;
+END
+$assert_migration_principal_privileges$;

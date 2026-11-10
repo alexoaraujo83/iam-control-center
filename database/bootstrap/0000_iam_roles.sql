@@ -25,6 +25,10 @@ BEGIN
     FROM pg_roles
    WHERE rolname = current_user;
 
+  IF current_user <> 'iam_bootstrap_admin' THEN
+    RAISE EXCEPTION 'bootstrap must use the dedicated iam_bootstrap_admin principal';
+  END IF;
+
   IF NOT FOUND OR session_user <> current_user
      OR NOT admin_role.rolcanlogin
      OR admin_role.rolsuper
@@ -82,6 +86,12 @@ CREATE ROLE iam_app_runtime_login
   LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE
   NOREPLICATION NOBYPASSRLS;
 
+-- PostgreSQL 18 / Neon may retain provider-managed ADMIN memberships for the
+-- database owner. Do not attempt to ALTER the authenticated bootstrap role here:
+-- PostgreSQL does not permit this least-privilege principal to disable itself.
+-- A separate, independently privileged operator must lock the one-time login
+-- after this transaction commits. Never reuse it as an application runtime.
+
 -- Exact, non-admin membership topology expected by migration 0001.
 GRANT iam_owner TO iam_migrator
   WITH INHERIT FALSE, SET TRUE, ADMIN FALSE;
@@ -116,5 +126,8 @@ BEGIN
   );
 END
 $database_grants$;
+
+-- Deliberately do not ALTER CURRENT_USER. The caller cannot reliably disable
+-- its own LOGIN under PostgreSQL's role-management rules; lock it separately.
 
 COMMIT;
