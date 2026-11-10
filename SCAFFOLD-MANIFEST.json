@@ -1,8 +1,8 @@
 {
   "project": "iam-control-center",
   "status": "bootstrap scaffold; not production-ready",
-  "manifest_updated_at_utc": "2026-11-08",
-  "tracked_file_count": 99,
+  "manifest_updated_at_utc": "2026-11-09",
+  "tracked_file_count": 118,
   "tracked_files": [
     ".env.example",
     ".github/e2e/README.md",
@@ -11,7 +11,9 @@
     ".github/workflows/database-tests.yml",
     ".github/workflows/iam-context-harness.yml",
     ".github/workflows/iam-tenant-context-poc.yml",
+    ".github/workflows/neon-pr-branch-lifecycle.yml",
     ".github/workflows/neon-review-role-verification.yml",
+    ".github/workflows/neon-schema-export.yml",
     ".github/workflows/postgres18-role-security-harness.yml",
     ".github/workflows/quality.yml",
     ".gitignore",
@@ -43,14 +45,24 @@
     "apps/web/tsconfig.json",
     "database/bootstrap/0000_iam_roles.sql",
     "database/migrations/0001_initial_iam_schema.sql",
+    "database/migrations/0002_sessions_touch_contract.sql",
     "database/migrations/README.md",
     "database/poc/tenant-context/01_hmac_context.sql",
     "database/poc/tenant-context/README.md",
+    "database/scripts/export-neon-schema.sh",
+    "database/scripts/schema-manifest.sql",
     "database/tests/0000_role_bootstrap_contract.sql",
     "database/tests/0001_schema_contract.sql",
+    "database/tests/0002_sessions_touch_contract.sql",
+    "database/tests/0002_sessions_touch_fixture.sql",
     "database/tests/bootstrap.sql",
+    "database/tests/effective-privileges-contract.sql",
+    "database/tests/render-schema-manifest-section-hashes.py",
+    "database/tests/restore-source-schema.sh",
     "database/tests/role-assumption-contract.sql",
     "database/tests/run.sh",
+    "database/tests/runtime-rls-contract.sql",
+    "database/tests/validate-schema-manifest.py",
     "docs/README.md",
     "docs/architecture/adr-0001-tenant-context-mechanism.md",
     "docs/architecture/decisions/0001-modular-monolith.md",
@@ -63,8 +75,13 @@
     "docs/architecture/tenant-context-rfc.md",
     "docs/auth/auth0-free-nextjs16.md",
     "docs/auth/auth0-setup.md",
+    "docs/database/canonical-migration-lineage-plan.md",
+    "docs/database/iam-postgresql-test-matrix.md",
     "docs/database/neon-free-nextjs.md",
+    "docs/database/neon-source-baseline-reconciliation.md",
+    "docs/database/schema-manifest-contract.md",
     "docs/evidence/dependency-security-remediation.md",
+    "docs/evidence/github-360-audit-2026-11-09.md",
     "docs/evidence/policy.md",
     "docs/evidence/repository-audit-2026-11-07.md",
     "docs/evidence/validation-2026-10-31.md",
@@ -79,6 +96,7 @@
     "docs/operations/migrator-role-assumption-proposal.md",
     "docs/operations/neon-consumer-inventory.md",
     "docs/operations/neon-pooler-runtime-migration-isolation-proposal.md",
+    "docs/operations/neon-pr-branch-lifecycle.md",
     "docs/operations/neon-project-identity-reconciliation.md",
     "docs/operations/neon-review-workflow-replacement-proposal.md",
     "docs/operations/neon-vercel-environment-reconciliation-proposal.md",
@@ -93,6 +111,7 @@
     "iam-ctx-poc-01-harness/docs/threat-model.md",
     "iam-ctx-poc-01-harness/sql/00_fixture.sql",
     "iam-ctx-poc-01-harness/tests/10_sec01_sec16.sql",
+    "iam_database_schema.sql",
     "main ci quality.json",
     "package.json",
     "pnpm-lock.yaml",
@@ -106,7 +125,7 @@
   ],
   "repository": {
     "created": true,
-    "visibility": "private"
+    "visibility": "public"
   },
   "external_integrations_not_verified": [
     "Auth0 tenant/application configuration and real OIDC login/session/logout",
@@ -126,10 +145,11 @@
       "build",
       "Preview impact filter"
     ],
-    "last_verified_sha": "64f96d84b33aff57d9c09bbe7ff54396e651552c",
+    "last_verified_sha": "c4004e58dc5bf9ca6faad7c3237827025b8b6d2d",
     "last_verified_runs": [
-      "https://github.com/alexoaraujo83/iam-control-center/actions/runs/42430949038"
-    ]
+      "https://github.com/alexoaraujo83/iam-control-center/actions/runs/42497907109"
+    ],
+    "last_verified_scope": "quality SUCCESS on exact SHA; preview-deployment and auth0-e2e SKIPPED"
   },
   "known_limitations": [
     "Auth0 E2E and Vercel Preview deployment were SKIPPED on the current main SHA.",
@@ -138,7 +158,10 @@
     "No complete migration sequence reproduces the 23-table historical schema-only snapshot from an isolated branch of the current Neon delivery project; this snapshot does not prove equivalence with the live main branch.",
     "In the isolated post-hardening restore, sessions UPDATE fails because sessions_touch calls iam.touch_updated_at() against a table without updated_at; fix design remains pending.",
     "Parallel migration-lock contention has not been proven with independent PostgreSQL sessions/backend PIDs.",
-    "Historical dependency versions in older evidence documents are superseded by the current package manifest."
+    "Historical dependency versions in older evidence documents are superseded by the current package manifest.",
+    "Repository is publicly visible according to GitHub API on 2026-11-09, despite previous documentation claiming private; owner must confirm desired visibility and review secret exposure/history.",
+    "Neon post-hardening schema export workflow failed on main SHA c4004e58dc5bf9ca6faad7c3237827025b8b6d2d, run 42497907034; no canonical export validation is claimed.",
+    "Manifest inventory is a Git tree snapshot; GitHub account settings, GitHub integrations, Auth0/Vercel configuration and Neon runtime are outside this snapshot."
   ],
   "neon_schema_snapshot": {
     "project_id": "twilight-fire-88497009",

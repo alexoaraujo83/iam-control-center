@@ -1,0 +1,70 @@
+name: Documentation Preview gate
+
+on:
+  pull_request:
+    paths:
+      - "SCAFFOLD-MANIFEST.json"
+      - "docs/**"
+      - ".github/workflows/docs-preview-gate.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  docs-preview-gate:
+    name: docs-preview-gate
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    environment:
+      name: Preview
+    permissions:
+      contents: read
+      pull-requests: read
+      statuses: read
+      deployments: write
+    steps:
+      - name: Reject non-documentation changes
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          changed="$(gh api --paginate "repos/${REPOSITORY}/pulls/${PR_NUMBER}/files?per_page=100" --jq '.[].filename')"
+          test -n "${changed}" || { echo "::error::Empty PR file set"; exit 1; }
+          while IFS= read -r file; do
+            case "${file}" in
+              SCAFFOLD-MANIFEST.json|docs/*|.github/workflows/docs-preview-gate.yml) ;;
+              *) echo "::error::App or security code changed; docs gate cannot replace app Preview E2E"; exit 1 ;;
+            esac
+          done <<< "${changed}"
+      - name: Verify successful exact-commit Vercel deployment
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 48); do
+            response="$(gh api "repos/${REPOSITORY}/commits/${COMMIT_SHA}/status")"
+            row="$(jq -c '[.statuses[] | select(.context == "Vercel")] | first // {}' <<< "${response}")"
+            state="$(jq -r '.state // "missing"' <<< "${row}")"
+            description="$(jq -r '.description // ""' <<< "${row}")"
+            target="$(jq -r '.target_url // ""' <<< "${row}")"
+            if [[ "${state}" == "success" && "${description}" == "Deployment has completed" && "${target}" =~ ^https://vercel\.com/alexoaraujo83-8387s-projects/iam-control-center/[a-zA-Z0-9]+$ ]]; then
+              echo "Verified completed Vercel deployment of exact PR SHA: ${COMMIT_SHA}"
+              echo "Vercel deployment: ${target}"
+              exit 0
+            fi
+            if [[ "${state}" == "failure" || "${state}" == "error" ]]; then
+              echo "::error::Vercel deployment failed for exact commit"
+              exit 1
+            fi
+            echo "Exact-SHA READY evidence pending (${attempt}/48); Vercel state: ${state}, outcome: ${description}"
+            sleep 10
+          done
+          echo "::error::No successful Vercel deployment for this PR SHA. Canceled builds are not READY."
+          exit 1
