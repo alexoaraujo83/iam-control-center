@@ -73,7 +73,15 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: node scripts/vercel-ignore-build.mjs --github-output
 
+      # The Auth0 SDK is evaluated during CI build. These values are inert,
+      # scoped only to this step, and never used in Preview or Production.
       - name: Build
+        env:
+          AUTH0_DOMAIN: ci-only.invalid
+          AUTH0_CLIENT_ID: ci-build-only
+          AUTH0_CLIENT_SECRET: ci-build-only-not-a-credential
+          AUTH0_SECRET: ci-build-only-secret-not-valid-for-any-environment
+          APP_BASE_URL: http://localhost:3000
         run: pnpm build
 
   preview-deployment:
