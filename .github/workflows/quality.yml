@@ -146,9 +146,9 @@ jobs:
 
   auth0-e2e:
     name: auth0-e2e
-    # Auth0 currently allowlists the callback alias for fix/ci-auth0-build-config only.
-    # Do not schedule this job for other branches until their callbacks are verified.
-    if: github.event_name == 'pull_request' && vars.AUTH0_E2E_ENABLED == 'true' && needs.quality.outputs.preview_required == 'true' && github.event.pull_request.head.repo.full_name == 'alexoaraujo83/iam-control-center' && github.event.pull_request.head.ref == 'fix/ci-auth0-build-config'
+    # This branch currently owns the verified canonical Preview callback alias.
+    # Run E2E only for the branch bound to that alias, never for forks or other PRs.
+    if: github.event_name == 'pull_request' && vars.AUTH0_E2E_ENABLED == 'true' && needs.quality.outputs.preview_required == 'true' && github.event.pull_request.head.repo.full_name == 'alexoaraujo83/iam-control-center' && github.event.pull_request.head.ref == 'fix/bind-preview-e2e-deployment'
     needs:
       - quality
       - preview-deployment
@@ -188,7 +188,7 @@ jobs:
           set -euo pipefail
           # The callback domain is currently bound to this branch in Vercel.
           # Fail closed rather than testing a different PR through that alias.
-          if [[ "${PR_HEAD_REPOSITORY}" != "alexoaraujo83/iam-control-center" || "${PR_HEAD_BRANCH}" != "fix/ci-auth0-build-config" ]]; then
+          if [[ "${PR_HEAD_REPOSITORY}" != "alexoaraujo83/iam-control-center" || "${PR_HEAD_BRANCH}" != "fix/bind-preview-e2e-deployment" ]]; then
             echo "::error::Auth0 callback alias is not bound to this PR branch. Configure a branch-specific callback before enabling E2E."
             exit 1
           fi
