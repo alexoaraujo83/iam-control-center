@@ -205,11 +205,11 @@ FOR EACH ROW EXECUTE FUNCTION iam.touch_updated_at();
 RESET ROLE;
 SQL
 {
-  printf '%s\\n' 'SET ROLE iam_owner;'
+  printf '%s\n' 'SET ROLE iam_owner;'
   cat database/migrations/0002_sessions_touch_contract.sql
 } | PGPASSWORD="$POSTGRES_TEST_PASSWORD" psql "$DATABASE_URL" -v ON_ERROR_STOP=1
 {
-  printf '%s\\n' 'SET ROLE iam_owner;'
+  printf '%s\n' 'SET ROLE iam_owner;'
   cat database/tests/0002_sessions_touch_contract.sql
 } | PGPASSWORD="$POSTGRES_TEST_PASSWORD" psql "$DATABASE_URL" -v ON_ERROR_STOP=1
 
