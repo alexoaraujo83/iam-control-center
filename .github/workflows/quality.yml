@@ -146,9 +146,10 @@ jobs:
 
   auth0-e2e:
     name: auth0-e2e
-    # This branch currently owns the verified canonical Preview callback alias.
-    # Run E2E only for the branch bound to that alias, never for forks or other PRs.
-    if: github.event_name == 'pull_request' && vars.AUTH0_E2E_ENABLED == 'true' && needs.quality.outputs.preview_required == 'true' && github.event.pull_request.head.repo.full_name == 'alexoaraujo83/iam-control-center' && github.event.pull_request.head.ref == 'fix/bind-preview-e2e-deployment'
+    # Always schedule E2E when a Preview is required and E2E is enabled.
+    # Unsupported branches/forks fail closed in the binding preflight rather than
+    # silently reporting CI green with auth0-e2e SKIPPED.
+    if: github.event_name == 'pull_request' && vars.AUTH0_E2E_ENABLED == 'true' && needs.quality.outputs.preview_required == 'true'
     needs:
       - quality
       - preview-deployment
