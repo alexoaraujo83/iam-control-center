@@ -11,7 +11,8 @@ import sys
 from pathlib import Path
 
 REQUIRED = frozenset(("aggregates", "format", "iam_routines", "policies",
- "relations", "schemas", "sequences", "server_version_num", "triggers", "types"))
+ "relations", "schemas", "sequences", "triggers", "types"))
+ENGINE_METADATA = frozenset(("server_version_num",))  # Checked by PG18 runtime gate, not structural parity.
 SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 
 def validate(snapshot_path: Path, tsv_path: Path) -> None:
@@ -22,7 +23,7 @@ def validate(snapshot_path: Path, tsv_path: Path) -> None:
         raise ValueError("invalid source snapshot format")
     if src.get("project_id") != "twilight-fire-88497009" or src.get("branch_id") != "br-little-fire-b6adup9f" or src.get("database") != "iam_database":
         raise ValueError("unexpected source project/branch/database")
-    if not isinstance(expected, dict) or set(expected) != REQUIRED:
+    if not isinstance(expected, dict) or set(expected) != REQUIRED | ENGINE_METADATA:
         raise ValueError("required portable sections are missing or unexpected")
     actual = {}
     for line_no, line in enumerate(tsv_path.read_text(encoding="utf-8").splitlines(), 1):
@@ -39,6 +40,8 @@ def validate(snapshot_path: Path, tsv_path: Path) -> None:
         else:
             raise ValueError(f"invalid count at line {line_no}")
         actual[name] = (count, digest)
+    if set(actual) != REQUIRED | ENGINE_METADATA:
+        raise ValueError("unexpected/missing restore sections: " + repr(sorted(set(actual) ^ (REQUIRED | ENGINE_METADATA))))
     failures = []
     for name in sorted(REQUIRED):
         row = expected[name]
@@ -53,7 +56,7 @@ def validate(snapshot_path: Path, tsv_path: Path) -> None:
             failures.append(f"{name}: expected {count!r}/{digest}; got {actual[name]}")
     if failures:
         raise ValueError("portable Neon source parity failed:\n" + "\n".join(failures))
-    print(f"PASS: {len(REQUIRED)} portable schema sections match pinned Neon main. "
+    print(f"PASS: {len(REQUIRED)} portable schema sections match pinned Neon main (PG18 major checked by CI). "
           "Provider ACLs/memberships/extensions and valid-context RLS remain separate gates.")
 
 if __name__ == "__main__":
