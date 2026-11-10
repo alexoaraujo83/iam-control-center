@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 const { middleware } = vi.hoisted(() => ({
-  middleware: vi.fn(async () => new Response("Auth0 handled")),
+  middleware: vi.fn(async (_request: Request) => new Response("Auth0 handled")),
 }));
 
 vi.mock("./lib/auth0", () => ({

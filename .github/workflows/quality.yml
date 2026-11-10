@@ -73,9 +73,8 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: node scripts/vercel-ignore-build.mjs --github-output
 
-      # Auth0 SDK initialization is evaluated during next build. These inert values
-      # are scoped to this CI build step only; they are never used for deployments.
-      # Real Auth0 credentials must come from the protected Vercel environment.
+      # The Auth0 SDK is evaluated during CI build. These values are inert,
+      # scoped only to this step, and never used in Preview or Production.
       - name: Build
         env:
           AUTH0_DOMAIN: ci-only.invalid
@@ -91,6 +90,8 @@ jobs:
     needs: quality
     runs-on: ubuntu-24.04
     timeout-minutes: 12
+    outputs:
+      preview_host: ${{ steps.resolve-preview.outputs.preview_host }}
     environment:
       name: Preview
     permissions:
@@ -100,6 +101,7 @@ jobs:
       deployments: write
     steps:
       - name: Wait for an exact-SHA READY Vercel Preview deployment
+        id: resolve-preview
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
@@ -132,6 +134,8 @@ jobs:
             if [ "${state}" = "success" ] && [ -n "${preview_host}" ]; then
               case "${preview_host}" in
                 *.vercel.app)
+                  [[ "${preview_host}" =~ ^[a-zA-Z0-9-]+\.vercel\.app$ ]] || exit 1
+                  printf 'preview_host=%s\n' "${preview_host}" >> "$GITHUB_OUTPUT"
                   echo "Exact-SHA Vercel Preview is ready: ${preview_host}"
                   exit 0
                   ;;
@@ -150,6 +154,9 @@ jobs:
 
   auth0-e2e:
     name: auth0-e2e
+    # Always schedule E2E when a Preview is required and E2E is enabled.
+    # Unsupported branches/forks fail closed in the binding preflight rather than
+    # silently reporting CI green with auth0-e2e SKIPPED.
     if: github.event_name == 'pull_request' && vars.AUTH0_E2E_ENABLED == 'true' && needs.quality.outputs.preview_required == 'true'
     needs:
       - quality
@@ -180,36 +187,27 @@ jobs:
           node-version: 24
 
 
-      - name: Resolve the exact Vercel Preview branch alias for this commit
+      - name: Bind E2E to the verified Preview and callback branch
         env:
-          GH_TOKEN: ${{ github.token }}
-          REPOSITORY: ${{ github.repository }}
-          COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
-          # Branch alias returned by Vercel for fix/next16-proxy-r2.
-          # The preceding exact-SHA Vercel status gate must be green before use.
-          E2E_DEPLOYMENT_HOST: iam-control-center-git-fix-426b37-alexoaraujo83-8387s-projects.vercel.app
+          E2E_DEPLOYMENT_HOST: ${{ needs.preview-deployment.outputs.preview_host }}
+          PR_HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+          PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
         shell: bash
         run: |
           set -euo pipefail
-          status="$(gh api "repos/${REPOSITORY}/commits/${COMMIT_SHA}/status" \
-            --jq '[.statuses[] | select(.context == "Vercel")] | first | .state // "missing"')"
-          if [ "${status}" != "success" ]; then
-            echo "::error::Vercel Preview status is not successful for ${COMMIT_SHA} (state: ${status})."
+          # The callback domain is currently bound to this branch in Vercel.
+          # Fail closed rather than testing a different PR through that alias.
+          if [[ "${PR_HEAD_REPOSITORY}" != "alexoaraujo83/iam-control-center" || "${PR_HEAD_BRANCH}" != "fix/bind-preview-e2e-deployment" ]]; then
+            echo "::error::Auth0 callback alias is not bound to this PR branch. Configure a branch-specific callback before enabling E2E."
             exit 1
           fi
-
-          deployment_host="${E2E_DEPLOYMENT_HOST}"
-          if [[ "${deployment_host}" != *.vercel.app ]]; then
-            echo "::error::Configured Vercel Preview branch alias is invalid."
+          [[ "${E2E_DEPLOYMENT_HOST}" =~ ^[a-zA-Z0-9-]+\.vercel\.app$ ]] || {
+            echo "::error::Verified exact-SHA deployment hostname is missing or invalid."
             exit 1
-          fi
-          if [ "${deployment_host}" = "${E2E_CALLBACK_HOST}" ]; then
-            echo "::error::Deployment hostname and callback alias must be distinct."
-            exit 1
-          fi
-
-          echo "Exact-SHA Vercel status is successful; using branch alias: ${deployment_host}"
-          printf 'E2E_DEPLOYMENT_URL=https://%s\n' "${deployment_host}" >> "$GITHUB_ENV"
+          }
+          # The exact-SHA Vercel Preview may itself use the canonical callback alias.
+          # Same-origin is valid and required for Auth0 transaction cookies.
+          printf 'E2E_DEPLOYMENT_URL=https://%s\n' "${E2E_DEPLOYMENT_HOST}" >> "$GITHUB_ENV"
           printf 'E2E_BASE_URL=https://%s\n' "${E2E_CALLBACK_HOST}" >> "$GITHUB_ENV"
 
       - name: Install isolated Playwright runner
@@ -287,9 +285,8 @@ jobs:
           if (callbackHost !== "iam-control-center-preview.vercel.app") {
             throw new Error("Unexpected Auth0 callback Preview host.");
           }
-          if (deploymentOrigin.hostname === callbackHost) {
-            throw new Error("Deployment hostname and callback alias must be distinct.");
-          }
+          // A shared deployment/callback hostname is permitted when the exact-SHA
+          // Preview gate already verified that hostname for this PR commit.
 
           // Negative control: deployment hostname must be protected without OIDC.
           const anonymous = await fetch(new URL("/protected", deploymentOrigin), { redirect: "manual" });

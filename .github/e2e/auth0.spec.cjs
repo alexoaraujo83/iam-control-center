@@ -100,9 +100,8 @@ test("Auth0 login, callback, session persistence and logout", async ({ page }) =
   await page.reload();
   await expect(page.getByRole("status")).toHaveText("Acesso autenticado confirmado.");
 
-  // Auth0 logout returns to the app root, whose proxy immediately starts a new
-  // login transaction. Assert the Auth0 login screen instead of expecting the
-  // transient app-origin URL to remain visible.
+  // Logout returns to the app root, which is immediately redirected to
+  // Auth0 by the Next.js proxy. Verify the login screen, not a transient URL.
   await page.goto("/auth/logout");
   await expect(page).toHaveURL(/iam-control-center\.us\.auth0\.com\/u\/login/, {
     timeout: 60000,
@@ -111,7 +110,7 @@ test("Auth0 login, callback, session persistence and logout", async ({ page }) =
     page.locator('input[name="username"], input[name="email"]').first()
   ).toBeVisible();
 
-  // A fresh protected request must still require credentials after logout.
+  // A fresh protected request must still require authentication after logout.
   await page.goto("/protected");
   await expect(page).toHaveURL(/iam-control-center\.us\.auth0\.com\/u\/login/, {
     timeout: 30000,
