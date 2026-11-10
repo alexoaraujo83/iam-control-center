@@ -73,6 +73,16 @@ PGPASSWORD="$POSTGRES_TEST_PASSWORD" psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -v 
 ALTER ROLE iam_migrator_login PASSWORD :'migrator_password';
 SQL
 
+echo "Verifying the exact historical source migration SHA-256 independently from the hardened regression fixture..."
+historical_source="database/archive/source-applied-migrations/applied/0001_context_key_hardening.sql"
+historical_digest="2447395628fa0f1230abd95eb522e5b45d1baea1208c9c21b20346a10718fbab"
+actual_digest="$(sha256sum "$historical_source" | awk '{print $1}')"
+if [[ "$actual_digest" != "$historical_digest" ]]; then
+  echo "ERROR: historical migration SQL differs from the source Neon ledger checksum" >&2
+  exit 1
+fi
+echo "PASS: exact historical source artifact matches approved Neon ledger digest"
+
 echo "Running migration over an authenticated non-privileged LOGIN session..."
 migration_checksum="$(sha256sum database/archive/source-applied-migrations/0001_context_key_hardening.sql | awk '{print $1}')"
 source_sha="$(git rev-parse HEAD)"
