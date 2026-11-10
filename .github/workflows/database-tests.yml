@@ -135,7 +135,7 @@ jobs:
             --env PGPASSWORD="$PGPASSWORD" \
             postgres:18-bookworm \
             bash -euo pipefail -c '
-              test "$(psql -X --no-password "$DATABASE_URL" -Atc "SELECT current_setting('server_version_num')::integer / 10000;")" = "18"
+              test "$(( $(psql -X --no-password "$DATABASE_URL" -Atc "SHOW server_version_num;") / 10000 ))" -eq 18
               bash database/tests/restore-source-schema.sh
             '
       - name: Generate and validate main baseline manifest
@@ -208,7 +208,7 @@ jobs:
             --env PGPASSWORD="$PGPASSWORD" \
             postgres:18-bookworm \
             bash -euo pipefail -c '
-              test "$(psql -X --no-password "$DATABASE_URL" -Atc "SELECT current_setting('server_version_num')::integer / 10000;")" = "18"
+              test "$(( $(psql -X --no-password "$DATABASE_URL" -Atc "SHOW server_version_num;") / 10000 ))" -eq 18
               bash database/tests/restore-source-schema.sh
             '
       - name: Verify candidate portable schema against pinned Neon source
