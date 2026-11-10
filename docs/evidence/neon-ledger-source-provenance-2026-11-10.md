@@ -38,6 +38,25 @@ The two `0001` rows are identical *in these branch snapshots*; this does not ind
 - The existing regression file `database/archive/source-applied-migrations/0001_context_key_hardening.sql` at PR #85's audited HEAD has SHA-256 `8d3d617fece260d845b5a173d94706afafa9e82327aaed406e1fe93a0d17d842`. It has changed after deployment and is **not** the original applied file.
 - The original bytes are now preserved independently at `database/archive/source-applied-migrations/applied/0001_context_key_hardening.sql`; the CI runner checks their checksum without executing them. The hardened fixture remains in disposable PostgreSQL 18 test execution.
 
+
+## Additional read-only catalog and negative RLS evidence
+
+### Branch-to-branch catalog comparisons (Neon `compare_database_schema`)
+
+- `schema-restore-validation-20261105` compared with source `main`: the complete returned schema diff contains only **three schema `USAGE` GRANT lines** for `iam_schema_export_reader` on `iam`, `audit`, and `app_private`. Other SQL DDL was identical in this specific branch comparison.
+- `schema-export-validation-20261105` compared with source `main`: the returned SQL diff consists of **extra `SELECT` GRANTs** for `iam_schema_export_reader` on existing application tables/view (plus an ACL heading). This confirms the export-validation branch has broader read-only ACLs than the operational main, not that those ACLs may be copied to Production.
+- `preview/pr-85` compared with parent `development`: empty schema diff. `development` compared with `main`: the sessions-touch function/trigger correction as detailed above.
+
+**Scope:** these are comparisons of *Neon branch schemas*, not cryptographically authenticated reconstruction of the repository's checked-in schema-only dump, and they do not export applied ledger data or test application behavior.
+
+### Runtime access with non-BYPASSRLS login
+
+On both Neon `main` and `development`, connected as `iam_app_runtime_login`, then in one `READ ONLY` transaction used `SET LOCAL ROLE iam_app_runtime` and `SET LOCAL row_security=on`. The effective role reported `rolbypassrls=false`. Without a signed tenant context, `app_private.current_tenant_id()` resolved `NULL`; `SELECT count(*)` from `iam.tenants` and `iam.memberships` returned **0** for each table.
+
+On `development`, repeated that transaction with only synthetic `iam.tenant_id`, `iam.identity_id`, future expiry, nonce, and a deliberately invalid signature set using transaction-local `set_config(..., true)`. The resolver still returned `NULL` and each table had **0 visible rows**. No real tenant, identity, key, or signature was queried or written. This is a negative *forged-GUC* check, not proof of valid signed-context A/B isolation.
+
+Remaining: valid signed tenant A/B tests on an authorized isolated Neon runtime branch, INSERT/UPDATE denial, audit/outbox propagation, idempotency and rollback evidence before any database merge.
+
 ## Remaining gates (not cleared by ledger read)
 
 1. Normalize/compare authenticated **full schema snapshot** and DDL manifest of operational Neon against the versioned baseline, including ownership, ACLs and provider-managed role differences. The schema-only dump alone does not include historical ledger rows.
