@@ -238,7 +238,7 @@ jobs:
     outputs:
       eligible: ${{ steps.paths.outputs.eligible }}
     steps:
-      - name: Exclude application and non-database changes
+      - name: Classify both original and destination paths
         id: paths
         shell: bash
         env:
@@ -270,7 +270,6 @@ jobs:
           done <<< "${changed}"
           if [[ "${database_touched}" != "true" ]]; then eligible=false; fi
           echo "eligible=${eligible}" >> "${GITHUB_OUTPUT}"
-          echo "Database-only PR eligible for verified Preview: ${eligible}"
 
   db_preview_verification:
     name: db-preview-verification
@@ -285,7 +284,7 @@ jobs:
     permissions:
       statuses: read
     steps:
-      - name: Require completed Vercel Preview for the exact PR SHA
+      - name: Verify completed Vercel Preview for exact PR SHA before deployment registration
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -300,81 +299,17 @@ jobs:
             description="$(jq -r '.description // ""' <<< "${row}")"
             target="$(jq -r '.target_url // ""' <<< "${row}")"
             if [[ "${state}" == "success" && "${description}" == "Deployment has completed" && "${target}" =~ ^https://vercel\.com/alexoaraujo83-8387s-projects/iam-control-center/[a-zA-Z0-9]+$ ]]; then
-              echo "PASS: real Vercel deployment completed for exact SHA ${COMMIT_SHA}"
-              echo "Vercel evidence: ${target}"
+              echo "PASS exact-SHA Vercel READY: ${COMMIT_SHA}"
+              echo "Evidence: ${target}"
               exit 0
             fi
             if [[ "${state}" == "failure" || "${state}" == "error" ]]; then
-              echo "::error::Vercel deployment failed for exact commit"
+              echo "::error::Vercel failed for exact SHA"
               exit 1
             fi
-            echo "Awaiting real READY (${attempt}/48), state=${state}, description=${description}"
             sleep 10
           done
-          echo "::error::No READY Vercel deployment for exact SHA; canceled builds do not count."
-          exit 1
-\t' read -r file previous; do
-            for candidate in "${file}" "${previous}"; do
-              [[ -n "${candidate}" ]] || continue
-              case "${candidate}" in
-              database/*|iam_database_schema.sql|role-security-harness/*|scripts/test-postgres18-role-security-harness.sh)
-                database_touched=true
-                ;;
-              docs/*|.github/workflows/database-tests.yml)
-                ;;
-              *)
-                eligible=false
-                ;;
-            esac
-          done <<< "${changed}"
-          if [[ "${database_touched}" != "true" ]]; then eligible=false; fi
-          echo "eligible=${eligible}" >> "${GITHUB_OUTPUT}"
-          echo "Database-only PR eligible for verified Preview: ${eligible}"
-
-  db_preview_gate:
-    name: db-preview-gate
-    needs:
-      - classify_db_preview
-      - postgres-18
-      - postgres-18-main-baseline-restore-manifest
-      - restore-source-schema
-    # Do not register Preview for application changes or failed PG18 tests.
-    if: needs.classify_db_preview.outputs.eligible == 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 14
-    environment:
-      name: Preview
-    permissions:
-      statuses: read
-      deployments: write
-    steps:
-      - name: Require completed Vercel Preview for the exact PR SHA
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPOSITORY: ${{ github.repository }}
-          COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
-        run: |
-          set -euo pipefail
-          for attempt in $(seq 1 48); do
-            response="$(gh api "repos/${REPOSITORY}/commits/${COMMIT_SHA}/status")"
-            row="$(jq -c '[.statuses[] | select(.context == "Vercel")] | first // {}' <<< "${response}")"
-            state="$(jq -r '.state // "missing"' <<< "${row}")"
-            description="$(jq -r '.description // ""' <<< "${row}")"
-            target="$(jq -r '.target_url // ""' <<< "${row}")"
-            if [[ "${state}" == "success" && "${description}" == "Deployment has completed" && "${target}" =~ ^https://vercel\.com/alexoaraujo83-8387s-projects/iam-control-center/[a-zA-Z0-9]+$ ]]; then
-              echo "PASS: real Vercel deployment completed for exact SHA ${COMMIT_SHA}"
-              echo "Vercel evidence: ${target}"
-              exit 0
-            fi
-            if [[ "${state}" == "failure" || "${state}" == "error" ]]; then
-              echo "::error::Vercel deployment failed for exact commit"
-              exit 1
-            fi
-            echo "Awaiting real READY (${attempt}/48), state=${state}, description=${description}"
-            sleep 10
-          done
-          echo "::error::No READY Vercel deployment for exact SHA; canceled builds do not count."
+          echo "::error::No completed Vercel deployment for exact SHA"
           exit 1
 
   db_preview_gate:
@@ -394,5 +329,6 @@ jobs:
       contents: read
       deployments: write
     steps:
-      - name: Register Preview only after verified exact-SHA Vercel READY and PG18
-        run: echo "PASS exact-SHA Vercel status verified by db-preview-verification and three PostgreSQL 18 jobs"
+      - name: Register Preview after independent exact-SHA verification and PG18 success
+        run: |
+          echo "PASS Preview verification and three PostgreSQL 18 jobs"
